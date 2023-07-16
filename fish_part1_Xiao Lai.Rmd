@@ -1,0 +1,540 @@
+---
+title: "CW-Xiao Lai"
+author: "Xiao Lai"
+date: "3/13/2022"
+output: word_document
+---
+```{r}
+rm(list = ls())
+```
+Loading some libraries
+```{r}
+library(dplyr)
+library(caret)
+library(Hmisc)
+library(stringr)
+library(ggplot2)
+```
+Loading datasets: escapes and analysis
+```{r}
+escapes <- read.csv("/Users/xiaolai/Desktop/DataScienceDevelopment/escapes.csv", header=T, stringsAsFactors = T)
+analysis <- read.csv("/Users/xiaolai/Desktop/DataScienceDevelopment/analysis.csv", header=T, stringsAsFactors = T)
+```
+CW task 1
+Removing useless columns such as Site.Address, Site.Contact.Number, Aquaculture.Type,Easting, Northing and some columns contain duplicate information.
+```{r}
+str(escapes)
+escapes <- subset(escapes, select= -c(1:3, 22, 25:27, 29:30,33:35))
+```
+
+1.1 Clean the escapes$Escaped.Species column. First let's look at the structure of the data and the frequency of each type of fish.
+```{r warning=TRUE}
+str(escapes$Escaped.Species)
+levels(escapes$Escaped.Species)
+summary(escapes$Escaped.Species)
+```
+There are two major fish types, atlantic salmon and rainbow trout. The frequency of other fish types are very low, let's classify them as one category 'others'. First we need convert the Escaped.Species to character. After reclassification, we need to convert the Escaped.Species back to factor.
+```{r}
+escapes$Escaped.Species=as.character(escapes$Escaped.Species)
+escapes$Escaped.Species[escapes$Escaped.Species == 'brown trout and sea trout'] <- "others"
+escapes$Escaped.Species[escapes$Escaped.Species == 'cod'] <- "others"
+escapes$Escaped.Species[escapes$Escaped.Species == 'halibut'] <- "others"
+escapes$Escaped.Species[escapes$Escaped.Species == 'lumpsucker'] <- "others"
+escapes$Escaped.Species[escapes$Escaped.Species == 'wrasse'] <- "others"
+escapes$Escaped.Species=as.factor(escapes$Escaped.Species)
+```
+
+1.2 escapes$Age column. Check the Age levels and convert to character.
+```{r}
+str(escapes$Age)
+levels(escapes$Age)
+escapes$Age=as.character(escapes$Age)
+```
+Remove special and alpha characters in the Age column apart from "mth" means month, "yr" means year, and "k" means week. Check the Age column after characters remove
+```{r}
+escapes$Age <- str_remove_all(escapes$Age, "[&ofni()s@ap+qledugw]") 
+escapes$Age
+```
+
+The Age column contains the data with the unit of month, week, year, and some data maybe means year or doesn't make any sense. Therefore, I will keep the month, week, and year and convert them all to month. The rest of data will be replaced with NA.  
+
+Remove data that are not by month, year, or week. Then check the levels change.
+```{r}
+RM <- function (svalue){
+  if(grepl("[mthyrk]", svalue)){
+    y <- str_locate(svalue,"[mthyrk]")[1,1] 
+    num1 = as.character(substr(svalue, 0,y))
+    return(num1)
+  } else {return(NA)}
+}
+escapes$Age <- sapply(escapes$Age, RM)
+str(escapes$Age)
+levels(as.factor(escapes$Age))
+escapes$Age=as.character(escapes$Age)
+```
+After remove the unwanted data, we still have a few unwanted data remain in the column. Let's manually remove them.
+```{r}
+escapes$Age[escapes$Age == '1999 r'] <- NA
+escapes$Age[escapes$Age =='2 - 2.5 k' ] <- NA
+escapes$Age[escapes$Age =='30  42 m'] <- NA
+```
+Convert year to month. If the data doesn't contain "y", the rest data will return to character
+```{r}
+YrToMonth <- function (svalue){
+  if(grepl("y", svalue)){
+    y <- str_locate(svalue,"y")[1,1] 
+    num1 = as.numeric(substr(svalue, 0,y-1))
+    return(num1*12)
+  } else {return(as.character(svalue))}
+}
+escapes$Age <- sapply(escapes$Age, YrToMonth)
+```
+Convert week to month by 'num/52*12' (~52 weeks per year). If the data doesn't contain "k", the rest data will return to character.
+```{r}
+WkToMonth <- function (svalue){
+  if(grepl("k", svalue)){
+    y <- str_locate(svalue,"k")[1,1] 
+    num = as.numeric(substr(svalue, 0,y-1))
+    return(num/52*12)
+  } else {return(as.character(svalue))}
+}
+escapes$Age <- sapply(escapes$Age, WkToMonth)
+```
+To deal with the data with range, first we need to remove the rest data with character "m" and then caculate the mean of the ranged data.
+```{r}
+escapes$Age <- str_remove_all(escapes$Age, "[m]")
+```
+Caculated the mean of ranged data. If the data doesn't contain "-", the rest data will return to numeric.
+```{r}
+findMean1 <- function (svalue){
+  if(grepl("-", svalue)){
+    minus <- str_locate(svalue,"-")[1,1]
+    num1 = as.numeric(substr(svalue, 0,minus-1)) 
+    num2 = as.numeric(substr(svalue,minus+1, nchar(svalue)))
+    return(mean(c(num1,num2)))
+  } else {return(as.numeric(svalue))} 
+}
+escapes$Age <- sapply(escapes$Age, findMean1)
+```
+Check the range of the Age column.
+```{r}
+range(as.numeric(escapes$Age), na.rm=TRUE)
+```
+Now the Age column contains fish age by month. The data that not converted into month were replaced with NA.
+
+1.3 escapes$Average.Weight. Check the Age levels and convert to character.
+```{r}
+levels(escapes$Average.Weight)
+escapes$Average.Weight=as.character(escapes$Average.Weight)
+```
+Convert 'kilos' to 'kg' and grams to 'g' first. Then remove special and alpha characters. Make sure to check the levels change.
+```{r}
+escapes$Average.Weight[escapes$Average.Weight == '3.2 kilos'] <- "3.2 kg"
+escapes$Average.Weight[escapes$Average.Weight == 'grams'] <- "g"
+escapes$Average.Weight <- str_remove_all(escapes$Average.Weight, "[~months()iwrapl]")
+levels(as.factor(escapes$Average.Weight))
+escapes$Average.Weight=as.character(escapes$Average.Weight)
+```
+Before convert 'kg' to 'g', by checking the Average.Weight levels and I have found we need to manually changes some data from 'kg' to 'g' (8-10 kg','4-5 kg','2-4kg','1.8-2.0 kg','750g - 2 kg','6.5 & 12 kg','1 - 2.3 kg','0.25 - 2 kg'). Because this kind of data will be convert to 'NA' if we don't manually change. Below I will convert 'kg' with rang into 'g' with range first
+```{r}
+escapes$Average.Weight[escapes$Average.Weight == '8-10 kg'] <- "8000 - 10000g"
+escapes$Average.Weight[escapes$Average.Weight == '4-5 kg'] <- "4000 - 5000g"
+escapes$Average.Weight[escapes$Average.Weight == '2-4kg'] <- "2000 - 4000g"
+escapes$Average.Weight[escapes$Average.Weight == '1 - 2.3 kg'] <- "1000 - 2300g"
+escapes$Average.Weight[escapes$Average.Weight == '0.25 - 2 kg'] <- "250 - 2000g"
+escapes$Average.Weight[escapes$Average.Weight == '1.8-2.0 kg'] <- "1800 - 2000g"
+escapes$Average.Weight[escapes$Average.Weight == '750g - 2 kg'] <- "750 - 2000g"
+escapes$Average.Weight[escapes$Average.Weight == '6.5 & 12 kg'] <- "6500 - 12000g"
+```
+Remove data that are not by 'kg', 'g', or 'lb'. ('b' means 'lb' in this situation because 'l' was removed)
+```{r}
+RMB <- function (svalue){
+  if(grepl("[kgb]", svalue)){
+    y <- str_locate(svalue,"[kgb]")[1,1] 
+    num1 = as.character(substr(svalue, 0,y))
+    return(num1)
+  } else {return(NA)}
+}
+escapes$Average.Weight <- sapply(escapes$Average.Weight, RMB)
+```
+Convert 'kg' to 'g' by 'num*1000'. If the data doesn't contain "k", the rest data will return to character.
+```{r}
+kgTog <- function (svalue){
+  if(grepl("k", svalue)){
+    y <- str_locate(svalue,"k")[1,1] 
+    num = as.numeric(substr(svalue, 0,y-1))
+    return(as.character(num*1000))
+  } else {return(as.character(svalue))}
+}
+escapes$Average.Weight <- sapply(escapes$Average.Weight, kgTog)
+```
+Convert 'b' to 'g' by 'num*453.592'. If the data doesn't contain "b", the rest data will return to character.
+```{r}
+lbTog <- function (svalue){
+  if(grepl("b", svalue)){
+    y <- str_locate(svalue,"b")[1,1] 
+    num = as.numeric(substr(svalue, 0,y-1))
+    return(as.character(num*453.592))
+  } else {return(as.character(svalue))}
+}
+escapes$Average.Weight <- sapply(escapes$Average.Weight, lbTog)
+```
+To deal with the data with range, first we need to remove the rest data with character "g" and then caculate the mean of the ranged data.
+```{r}
+str(escapes$Average.Weight)
+escapes$Average.Weight <- str_remove_all(escapes$Average.Weight, "g")
+```
+Caculated the mean of ranged data. If the data doesn't contain "-", the rest data will return to numeric.
+```{r}
+findMean2 <- function (svalue){
+  if(grepl("-", svalue)){ 
+    minus <- str_locate(svalue,"-")[1,1]
+    num1 = as.numeric(substr(svalue, 0,minus-1))
+    num2 = as.numeric(substr(svalue,minus+1, nchar(svalue)))
+    return(as.character(mean(c(num1,num2))))
+  } else {return(as.numeric(svalue))}
+}
+escapes$Average.Weight <- sapply(escapes$Average.Weight, findMean2)
+```
+Check of range of the Average.Weight column
+```{r}
+range(as.numeric(escapes$Average.Weight), na.rm=TRUE)
+```
+Now the Average.Weight column contains the fish weights by gram. The data that not converted into gram were replaced with NA.
+
+1.4 escapes$Escape.Grid.Reference. Check the structure and levels of Escape.Grid.Reference column
+```{r}
+str(escapes$Escape.Grid.Reference)
+levels(escapes$Escape.Grid.Reference)
+```
+Remove ('12:30','13:00','58<b0>11.540') which don't mean the Escape.Grid.Reference and remove spaces among each reference numer. Then set the Escape.Grid.Reference back to factor.
+```{r}
+escapes$Escape.Grid.Reference[escapes$Escape.Grid.Reference == '12:30'] <- NA
+escapes$Escape.Grid.Reference[escapes$Escape.Grid.Reference == '13:00'] <- NA
+escapes$Escape.Grid.Reference[escapes$Escape.Grid.Reference == '58<b0>11.540'] <- NA
+escapes$Escape.Grid.Reference <- str_remove_all(escapes$Escape.Grid.Reference, "[ ]") # remove space
+escapes$Escape.Grid.Reference=as.factor(escapes$Escape.Grid.Reference)
+```
+
+1.5 escapes$Final.Escape.Reason and Initial.Escape.Reason.
+Check the level and convert to character.
+```{r}
+levels(escapes$Final.Escape.Reason)
+escapes$Final.Escape.Reason=as.character(escapes$Final.Escape.Reason)
+levels(escapes$Initial.Escape.Reason)
+escapes$Initial.Escape.Reason=as.character(escapes$Initial.Escape.Reason)
+```
+For the escape reasons, before '-' is the full description of reasons and after '-' is the abbreviation. I will just keep the full descritpion.
+```{r}
+getReasons <- function (svalue){
+  if(grepl("-", svalue)){ 
+    minus <- str_locate(svalue,"-")[1,1]
+    resons = as.character(substr(svalue, 0,minus-1)) 
+    return(as.character(resons))
+  } else {return(as.numeric(svalue))}
+}
+escapes$Final.Escape.Reason <- sapply(escapes$Final.Escape.Reason, getReasons) # same apply to escapes$Initial.Escape.Reason
+```
+Escape reasons set back to factor
+```{r}
+escapes$Final.Escape.Reason=as.factor(escapes$Final.Escape.Reason)
+escapes$Initial.Escape.Reason=as.factor(escapes$Initial.Escape.Reason)
+```
+
+1.6 escapes$Final.Number.Recovered. Check the levels and convert to character. Remove the data like '04-may' (means date not numer) and '6578 live,1709 dead' (no matter the fish is dead or live, they all escaped, I will take the sum)
+```{r}
+str(escapes$Final.Number.Recovered)
+levels(escapes$Final.Number.Recovered)
+escapes$Final.Number.Recovered=as.character(escapes$Final.Number.Recovered)
+escapes$Final.Number.Recovered[escapes$Final.Number.Recovered == '04-may']<- NA
+escapes$Final.Number.Recovered[escapes$Final.Number.Recovered =='6578 live,1709 dead']<-'8287'
+```
+Remove special and alpha characters and then calculate the means with ranged data. Finally set the Final.Number.Recovered as integer.
+```{r}
+escapes$Final.Number.Recovered <- str_remove_all(escapes$Final.Number.Recovered, "[ongibyfshermlv(da)+,]")
+findMean3 <- function (svalue){
+  if(grepl("-", svalue)){ 
+    minus <- str_locate(svalue,"-")[1,1]
+    num1 = as.numeric(substr(svalue, 0,minus-1)) 
+    num2 = as.numeric(substr(svalue,minus+1, nchar(svalue)))
+    return(as.character(mean(c(num1,num2))))
+  } else {return(as.character(svalue))} 
+}
+escapes$Final.Number.Recovered <- sapply(escapes$Final.Number.Recovered, findMean3)
+escapes$Final.Number.Recovered=as.integer(escapes$Final.Number.Recovered)
+```
+
+1.7 escapes$Final.Number.Escaped. Check the Final.Number.Escaped and convert to character. Manually correct some data like this: ">500 <1050" is ranged data, take the mean;"~2,500", "~200" and "est - 4000" are estimated date, just take the number; "0 (13 dead)" and "0 (160,000 dead)" are dead fish, but still escaped, just take the number; "no loss suspected" and "zero" convert to '0';  "ca. 150" convert to 'NA'.     
+```{r}
+str(escapes$Final.Number.Escaped)
+levels(escapes$Final.Number.Escaped)
+escapes$Final.Number.Escaped=as.character(escapes$Final.Number.Escaped)
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == '>500 <1050']<- "775"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == '0 (13 dead)']<- "13"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == '0 (160,000 dead)']<- "160000"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == 'est - 4000']<- "4000"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == 'no loss suspected']<- "0"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == 'zero']<- "0"
+escapes$Final.Number.Escaped[escapes$Final.Number.Escaped == 'ca. 150']<- NA
+```
+Remove special and alpha characters and then calculate the means with ranged data. Finally set the Final.Number.Escaped as integer.
+```{r}
+escapes$Final.Number.Escaped <- str_remove_all(escapes$Final.Number.Escaped, "[(estimate)~,]")
+findMean4 <- function (svalue){
+  if(grepl("-", svalue)){ 
+    minus <- str_locate(svalue,"-")[1,1]
+    num1 = as.numeric(substr(svalue, 0,minus-1)) 
+    num2 = as.numeric(substr(svalue,minus+1, nchar(svalue)))
+    return(as.character(mean(c(num1,num2))))
+  } else {return(as.character(svalue))} 
+}
+escapes$Final.Number.Escaped <- sapply(escapes$Final.Number.Escaped, findMean4)
+escapes$Final.Number.Escaped=as.integer(escapes$Final.Number.Escaped)
+```
+
+1.8 escapes$Initial.Number.Escaped. Check the Initial.Number.Escaped and convert to character. Manually correct some data such as "no loss suspected", "none", "none suspected" and "zero" to '0'.
+```{r}
+str(escapes$Initial.Number.Escaped)
+levels(escapes$Initial.Number.Escaped)
+escapes$Initial.Number.Escaped=as.character(escapes$Initial.Number.Escaped)
+escapes$Initial.Number.Escaped[escapes$Initial.Number.Escaped == 'no loss suspected']<- "0"
+escapes$Initial.Number.Escaped[escapes$Initial.Number.Escaped == 'none']<- "0"
+escapes$Initial.Number.Escaped[escapes$Initial.Number.Escaped == 'none suspected']<- "0"
+escapes$Initial.Number.Escaped[escapes$Initial.Number.Escaped == 'zero']<- "0"
+```
+Remove special and alpha characters and then calculate the means with ranged data. Finally set the Initial.Number.Escaped as integer.
+```{r}
+escapes$Initial.Number.Escaped <- str_remove_all(escapes$Initial.Number.Escaped, "[aprox><~les+imtydwhunmkvcf ,]")
+findMean5 <- function (svalue){
+  if(grepl("-", svalue)){ 
+    minus <- str_locate(svalue,"-")[1,1]
+    num1 = as.numeric(substr(svalue, 0,minus-1)) 
+    num2 = as.numeric(substr(svalue,minus+1, nchar(svalue)))
+    return(as.character(mean(c(num1,num2))))
+  } else {return(as.character(svalue))} 
+}
+escapes$Initial.Number.Escaped <- sapply(escapes$Initial.Number.Escaped, findMean5)
+escapes$Initial.Number.Escaped=as.integer(escapes$Initial.Number.Escaped)
+```
+
+1.9 escapes$Escape.Start.Time. Check the Escape.Start.Time and convert to character. Manually correct some data such as "1000","11","1200","12pm","13","1430","1700","18","2pm","700","8.3","8.45","800","900" to hh:mm format.
+```{r}
+str(escapes$Escape.Start.Time)
+levels(escapes$Escape.Start.Time)
+escapes$Escape.Start.Time=as.character(escapes$Escape.Start.Time)
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '1000']<- "10:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '11']<- "11:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '1200']<- "12:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '12pm']<- "12:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '13']<- "13:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '1430']<- "14:30"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '1700']<- "17:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '18']<- "18:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '2pm']<- "14:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '700']<- "7:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '8.3']<- "8:30"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '8.45']<- "8:45"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '800']<- "8:00"
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '900']<- "9:00"
+```
+Remove special and alpha characters. Finally set the Escape.Start.Time as factor.
+```{r}
+escapes$Escape.Start.Time <- str_remove_all(escapes$Escape.Start.Time, "[amhrelyn/ovtkpiguw]")
+str(escapes$Escape.Start.Time)
+escapes$Escape.Start.Time[escapes$Escape.Start.Time == '']<- NA
+escapes$Escape.Start.Time=as.factor(escapes$Escape.Start.Time)
+```
+
+CW task 2
+Merge the cleaned dataset with analysis and save it as escapesPlus.csv
+Change Site.Name to from both datasets into lowercase.
+```{r}
+escapes$Site.Name <- (str_to_lower(escapes$Site.Name))
+analysis$Site.Name <- (str_to_lower(analysis$Site.Name)) 
+```
+
+Format the escapes$Escape.Start.Date as %d-%b-%y and then add the month and year columns in escapes dataset. The columns are set as integer.
+```{r}
+str(escapes$Escape.Start.Date)
+escapes$Escape.Start.Date = as.Date(escapes$Escape.Start.Date, format = "%d-%b-%y")
+escapes$year <- format(escapes$Escape.Start.Date, '%Y')
+escapes$month <- format(escapes$Escape.Start.Date, '%m')
+escapes$month=as.integer(escapes$month)
+escapes$year=as.integer(escapes$year)
+```
+Merge two dataset by month+year+Site.Name and save the new dataset as escapesPlus.csv
+```{r}
+escapes$merge<- paste(escapes$month,escapes$year,escapes$Site.Name)
+analysis$merge <- paste(analysis$month, analysis$year, analysis$Site.Name)
+
+escapesPlus <- merge(x=escapes, y=analysis,
+                     by.x="merge",
+                     by.y="merge",
+                     all.x=TRUE,
+                     All.y=FALSE
+                     )
+
+write_csv(escapesPlus, file = '/Users/xiaolai/Desktop/DataScienceDevelopment/escapesPlus.csv')
+```
+CW task 3 
+Check the NA in each columns
+```{r}
+#which(is.na(escapesPlus))
+#is.na(escapesPlus)
+# apply(is.na(escapesPlus), 2, which) 
+```
+
+Loading some libraries
+```{r}
+library(corrplot)
+library(leaps)
+```
+Calculate the total escape.date and save it as a new column as Escapes.Date.diff
+```{r}
+escapesPlus$Escape.End.Time <- as.Date(escapesPlus$Escape.End.Time,format="%d-%b-%y")
+escapesPlus$Escape.Start.Date <- as.Date(escapesPlus$Escape.Start.Date)
+
+escapesPlus$Escapes.Date.diff = as.data.frame(escapesPlus$Escape.End.Time-escapesPlus$Escape.Start.Date)
+escapesPlus$Escapes.Date.diff=as.numeric(unlist(escapesPlus$Escapes.Date.diff))
+```
+
+xxxx
+Subset columns which are numeric or integer and check if there any correlations.
+```{r}
+cor <- subset(escapesPlus, select=c(8,9,11,14,15,33:39))
+escapesPlus$Initial.Number.Escaped= as.numeric(escapesPlus$Initial.Number.Escaped)
+escapesPlus$Final.Number.Escaped=as.numeric(escapesPlus$Final.Number.Escaped)
+escapesPlus$Final.Number.Recovered=as.numeric(escapesPlus$Final.Number.Recovered)
+cor(cor,use = "pairwise.complete.obs")
+corrplot(cor(cor, use = "pairwise.complete.obs"), method = "number", tl.col = "black",number.cex = 0.5)
+```
+
+Plot some data
+Because the Final.Number.Escaped contains the most values. The correlation between the Final.Number.Escaped and Initial.Number.Escaped is pretty strong. From now on I will explore the Final.Number.Escaped vs other factors when I plot the escape numers.
+Plot Site.Post.Code vs escape numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Final.Number.Escaped,y=Site.Post.Code))+
+  geom_point()
+```
+
+Age vs Average.Weight or Final.Number.Escaped
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Age, y = Average.Weight))+
+  geom_point()
+ggplot(data=escapesPlus, 
+       aes(x = Age, y = Final.Number.Escaped))+
+  geom_point()
+```
+Plot Average.Weight vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Average.Weight, y = Final.Number.Escaped))+
+  geom_point()
+```
+Plot Escape.Grid.Reference vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Escape.Grid.Reference, y = Final.Number.Escaped))+
+  geom_point()
+```
+Plot Escaped.Species vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Escaped.Species, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Water.Type vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Water.Type, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Health.Surveillance vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Health.Surveillance, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Stage vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Stage, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Initial.Escape.Reason vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Initial.Escape.Reason, y = Final.Number.Escaped))+
+  geom_jitter()+ theme(axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=1)) +theme(axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=1))
+```
+Plot Producing.in.Last.3.Years vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Producing.in.Last.3.Years, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Region vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Region, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Operator vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Operator, y = Final.Number.Escaped))+
+  geom_jitter()
+```
+Plot Escapes.Date.diff vs escaped numbers
+```{r}
+ggplot(data=escapesPlus, 
+       aes(x = Escapes.Date.diff, y = Final.Number.Escaped))+
+  geom_point()
+```
+
+CW task 4
+Decision tree of Health.Surveillance ~ Final.Number.Escaped
+```{r}
+trControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+set.seed(1234)
+rpart.model <- train(Health.Surveillance~Final.Number.Escaped,
+                     data=escapesPlus,
+                     method="rpart",
+                     metric="Accuracy",
+                     trControl=trControl,
+                     na.action = na.omit)
+print(rpart.model)
+confusionMatrix.train(rpart.model)
+```
+Decision tree of Stage ~ Final.Number.Escaped
+```{r}
+trControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+set.seed(1234)
+rpart.model <- train(Stage~Final.Number.Escaped,
+                     data=escapesPlus,
+                     method="rpart",
+                     metric="Accuracy",
+                     trControl=trControl,
+                     na.action = na.omit)
+print(rpart.model)
+confusionMatrix.train(rpart.model)
+```
+Decision tree of Region ~ Final.Number.Escaped
+```{r}
+trControl <- trainControl(method="repeatedcv", number=10, repeats=1)
+set.seed(1234)
+rpart.model <- train(Region~Final.Number.Escaped,
+                     data=escapesPlus,
+                     method="rpart",
+                     metric="Accuracy",
+                     trControl=trControl,
+                     na.action = na.omit)
+print(rpart.model)
+confusionMatrix.train(rpart.model)
+```
+
+```{r}
+rm(list = ls())
+```

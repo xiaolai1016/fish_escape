@@ -1,0 +1,288 @@
+---
+title: "CW_Part2_XiaoLai"
+author: "Xiao Lai"
+date: "4/28/2022"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r }
+rm(list = ls())
+```
+# Loading library
+```{r }
+library(caret)
+library(ggplot2)
+library(corrplot)
+```
+# Loading data
+```{r }
+data = read.csv("/Users/xiaolai/Desktop/DataScienceDevelopment/escapesClean.csv", stringsAsFactors = T) 
+```
+
+```{r }
+#Explore the data:
+summary(data) 
+```
+There are no NA in this dataset.
+## remove category to calculate correlations
+```{r }
+data2 <- subset(data, select= c(3, 4, 5, 8:13))
+cor <- cor(data2, method='spearman')
+corrplot(cor)
+```
+
+There are strong positive correlations among Zn, N, P, and Org, and between Number and SLR. The Age has a strong negative correlation against Zn and N. After feature selection, model 1 and model2 will test Cause against the variables Number and N, and model3 and model4 will test the Number against variables SLR and P.
+
+# Model1
+## feature selection
+```{r }
+library (leaps)
+fullSearch1 = regsubsets(Cause ~., data=data, method="exhaustive", nvmax=13) 
+plot(fullSearch1)
+full1 =summary(fullSearch1)
+full1$outmat
+full1$rsq
+plot(full1$rss, type = "b", col = "red",
+     ylab = "RSS", xlab = "Number of variables")
+legend("topright", col = "red",
+       legend = "Exhaustive")
+plot(full1$adjr2, type = "b", col = "red",
+     ylab = "adjusted R2", xlab = "Number of variables")
+legend("bottomright", col = "red",
+       legend = "Exhaustive")
+plot(full1$rsq, type = "b", col = "red",
+     ylab = "R2", xlab = "Number of variables")
+legend("bottomright", col = "red",
+       legend = "Exhaustive")
+# select the number in reduction in RSS or increase in R^2
+q1 = full1$which[2,-c(1)] 
+vars1 = paste(names(q1[q1 == TRUE]), collapse = "+") # extracts names of selected variables and concatenates them with +
+form1 = as.formula(paste("Cause ~ ", vars1)) # stores resulting model "formula" 
+form1
+```
+The reduction of RSS or increase of R^2 start at variable 2. So, I choose 2 variables for the model1 and the same variables for the model2 too.
+
+See the distribution of original data.
+```{r }
+ggplot(data = data, aes(x = N, y = Number, color = Cause)) + geom_jitter(height = 0.05, size = 0.5)
+```
+## Split data$Cause for 70% training and 30% testing.
+```{r }
+set.seed(1234)
+selected1 = createDataPartition(data$Cause, p = 0.7, list = F) 
+trainData1 = data[selected1, ]
+testData1 = data[-selected1, ]
+```
+## model1 train, evaluation, and testing
+```{r }
+control1 = trainControl(method = "repeatedcv", number = 10, repeats = 3)
+prep1 = c('range')
+model1 = train(form1, data = trainData1, method = "glm", trControl = control1,  preProcess = prep1) 
+summary(model1)
+varImp(model1)
+
+pred1 = predict(model1, testData1) 
+postResample(pred1, testData1$Cause)
+confusionMatrix(pred1, testData1$Cause, mode = "everything")
+```
+## Compare original and predicted Cause in testData1.
+```{r }
+testData1$predicted1 = pred1
+testData1$correct1 = (testData1$Cause==testData1$predicted1)
+ggplot(data = testData1, aes(x = N, y = Number, color = Cause)) + geom_jitter(height = 0.05, size = 0.5)
+ggplot(data = testData1, aes(x = N, y = Number, color = predicted1)) + geom_jitter(height = 0.05, size = 0.5)
+ggplot(data = testData1, aes(x = N, y = Number, color = correct1)) + geom_jitter(height = 0.05, size = 0.5)
+```
+# model 2
+## Create a grid of values for the tuneGrid parameter of the train function and train the model
+```{r }
+library(kernlab)
+library(e1071)
+### train and tune the model
+tune11 = expand.grid(list(C = c(0.01, 0.1, 1, 10, 50, 100), sigma = c(0.01,0.1,1,10,15,20,50)))
+model2_1 = train(form1, data = trainData1, method = "svmRadial", trControl = control1, preProcess = prep1, tuneGrid = tune11)
+plot(model2_1)
+model2_1$bestTune
+
+tune12 = expand.grid(list(C = seq(0.1, 50, 5), sigma = seq(0.01, 1, 0.1)))
+model2_2 = train(form1, data = trainData1, method = "svmRadial", trControl = control1, preProcess = prep1, tuneGrid = tune12)
+plot(model2_2)
+model2_2$bestTune 
+```
+## Evaluate and Visualise 
+```{r }
+varImp(model2_1)
+varImp(model2_2)
+plot(model2_2$finalModel)
+```
+
+```{r }
+pred2_1 = predict(model2_1, testData1)
+confusionMatrix(pred2_1, testData1$Cause, mode = "everything")
+```
+
+```{r }
+pred2_2 = predict(model2_2, testData1)
+confusionMatrix(pred2_2, testData1$Cause, mode = "everything")
+```
+
+## Compare original and predicted Cause in testData1.
+```{r }
+library(readr)
+testData1$predicted2 = pred2_2
+testData1$correct2 = (testData1$Cause==testData1$predicted2)
+write_csv(testData1, file = '/Users/xiaolai/Desktop/DataScienceDevelopment/testData1.csv')
+ggplot(data = testData1, aes(x = N, y = Number, color = Cause)) + geom_jitter(height = 0.05, size = 0.5)
+ggplot(data = testData1, aes(x = N, y = Number, color = predicted2)) + geom_jitter(height = 0.05, size = 0.5)
+ggplot(data = testData1, aes(x = N, y = Number, color = correct2)) + geom_jitter(height = 0.05, size = 0.5)
+```
+# Compare model1 and model2
+```{r }
+model1and2 = resamples(list(LogR = model1, SVMrad = model2_2))
+summary(model1and2)
+dotplot(model1and2, conf.level = 0.95, scales = "free")
+```
+
+Model1 used the glm method and model2 used the svmRadial method. After the second tune of the model2, the sensitivity, recall, F1, detection rate and prevalence were increased. However, the score of kappa was slightly decreased. The rest of the scores remain the same. By comparing the scores from confusionMatrix, model1 has a higher Kappa value and accuracy and a lower P-value. However, when comparing these two models using the resamples method, the kappa value and accuracy were higher in model2 at a 95% confidence interval. The number of resamples was 30, which was more than twice smaller than the testData1 sample size. The original data were evenly distributed. After the prediction in both models, the results show the cause of fish escape was more likely due to the human when the N increased. The important variable in the model1 was N and was the Number in model2.
+
+# Model 3
+## feature selection
+```{r }
+fullSearch3 = regsubsets(Number ~., data=data2, method="exhaustive", nvmax=10)
+full3 =summary(fullSearch3)
+plot(full3$rss, type = "b", col = "red",
+     ylab = "RSS", xlab = "Number of variables")
+legend("topright", col = "red",
+       legend = "Exhaustive")
+
+plot(full3$adjr2, type = "b", col = "red",
+     ylab = "adjusted R2", xlab = "Number of variables")
+legend("bottomright", col = "red",
+       legend = "Exhaustive")
+
+q3 = full3$which[2,-c(1)]  
+vars3 = paste(names(q3[q3 == TRUE]), collapse = "+") 
+form3 = as.formula(paste("Number ~ ", vars3)) 
+form3 # stores resulting model "formula" 
+```
+The reduction of RSS or increase of R^2 start at variable 2. So, I choose 2 variables for the model3 and the same variables for the model4 too.
+## Split data$Cause for 70% training and 30% testing.
+```{r }
+set.seed(1234)
+selected3 = createDataPartition(data2$Number, p = 0.7, list = F) 
+trainData3 = data2[selected3, ]
+testData3 = data2[-selected3, ]
+```
+## model3 train, evaluation, and testing
+```{r }
+control3 = trainControl(method = "repeatedcv", number = 10, repeats = 3)
+
+prep3 = c('range')
+
+model3 = train(form3, data = trainData3, method = "lm", trControl = control3,  preProcess = prep3) 
+summary(model3)
+varImp(model3)
+
+pred3 = predict(model3, testData3) 
+postResample(pred3, testData3$Number)
+```
+# model 4
+## Create a grid of values for the tuneGrid parameter of the train function and train the model
+```{r }
+### train and tune the model
+tune41 = expand.grid(list(C = c(0.01, 0.1, 1, 10, 50, 100, 200)))
+model4_1 = train(form3, data = trainData3, method = "svmLinear", trControl = control3, preProcess = prep1, tuneGrid = tune41)
+plot(model4_1) 
+model4_1$bestTune 
+
+tune42 = expand.grid(list(C = seq(1, 50, 5)))
+model4_2 = train(form3, data = trainData3, method = "svmLinear", trControl = control3, preProcess = prep1, tuneGrid = tune42)
+plot(model4_2)
+model4_2$bestTune 
+```
+## Evaluate and Visualise 
+```{r }
+summary(model4_2)
+varImp(model4_2)
+pred4 = predict(model4_2, testData3)
+postResample(pred4, testData1$Number)
+```
+# Compare model3 and model4
+```{r }
+model3and4 = resamples(list(LM = model3,  SVML = model4_2))
+summary(model3and4)
+dotplot(model3and4, conf.level = 0.95, scales = "free")
+```
+
+Model3 used the lm method and the model4 used the svmLinear method. The important variable for both models was SLR. The SLR was the significant variable for Number compared to P. The RMSE and MAE values were higher in model4 than in model3 when independently evaluating the models. The R^2 in model3 was 0.540, but the value in model4 was missing. When comparing these two models using resamples method at a 95% confidence interval, the RMSE and MAE values were higher in model3 than model4. The R^2 value in model3 was lower than model4.
+
+# shiny APP
+## Save the model as model2.rds
+Using method from model2 which is 'svmRadial' with more variables: Number + N + Cu + Season + Average.Weight. The variables were selected based one the 'full1$outmat' function from model1. 
+```{r }
+summary(data$Season)
+summary(data)
+model2 = train(Cause ~ Number + N + Cu + Season + Average.Weight, data = data, method = "svmRadial", trControl = control1, preProcess = prep1)
+saveRDS(model2, file = "/Users/xiaolai/Desktop/DataScienceDevelopment/model2.rds")
+```
+## Define UI for application and server logic required to draw a histogram
+```{r }
+library(shiny)
+model = readRDS("/Users/xiaolai/Desktop/DataScienceDevelopment/model2.rds")
+
+ui <- fluidPage(
+        
+        # Application title
+        titlePanel("Escape model2"),
+        
+        # set up the input elements on a side bar
+        sidebarLayout(
+                sidebarPanel(sliderInput("Number","Enter number:",min = 1, max = 336470 , value = 168235, step = 1),
+                        sliderInput("N", "Enter N:", min = -105.5, max = 696.5, value = 300),
+                        sliderInput("Cu", "Enter Cu",  min = -3.9100, max = 8.4502, value = 2.2), 
+                        selectInput("Season", "Select season", c('Autumn', 'Spring', 'Summer', 'Winter')),
+                        numericInput("Average.Weight", "Average.Weight", value = 4617, min = 15, max = 9250, step = 1),
+                ),
+                
+                mainPanel(tags$h3("The Cause of fish escape"), 
+                        
+                        tags$p("Prediction for Cause of fish escape is:"),
+                        textOutput("modelpredCause"),
+                        
+                        tags$br() # tags$br creates line break
+                  
+        )
+        
+        ),
+    fluidRow(
+        column(width = 7,   
+               #h4(""), 
+               p("The data used in this application are publicly available on the page of the Scotland's aquaculture which is part of Scotland's environment. The data extracted from this website is about fish escapes relate information that provided by the Marine Scotland."))
+    ),
+    br())
+
+server <- function(input, output) {
+        
+        output$modelpredCause <- renderText({
+                a = input$Number
+                b = input$N
+                c = input$Cu
+                d = input$Season
+                f = input$Average.Weight
+                
+                newData = data.frame(Number = a, N = b, Cu = c, Season = d, Average.Weight = f)
+                
+                pred = predict(model, newData)
+                predProb = predict(model, newData, type = "prob")
+                as.character(paste(pred))
+        })
+        
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+```
+
+There are a few ethical and social issues to address for the use of a predictions app to predict the cause of fish escape. First, the problem is the accuracy of prediction. Our model's accuracy is about 0.64, which is not high enough. If the insurance company relies on the prediction to invest the cause of fish escape and the prediction is not accurate enough. It may end with unfair results to either the insurance or the fish farmers. The predictions are based on a few factors. Some of them are chemical compositions in the water, such as the N, P, Zn, and Cu, which are strongly correlated. If the prediction says, the high escape number was due to high chemical concentration caused by humans that may lead people to stop buying fish. In contrast, there are maybe other reasons that cause the problem but didn’t include in the prediction. 
